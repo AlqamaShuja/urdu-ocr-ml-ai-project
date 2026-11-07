@@ -1,0 +1,38 @@
+# CRNN on handwritten Urdu (NUST-UHWR).
+#
+# Every value that affects a result lives here, not in the code, so a run can be
+# reproduced from this file plus the checkpoint it produced. The checkpoint stores
+# a copy of this config, so a saved model always carries the settings that made it.
+#
+# Command line flags override these values; the override is recorded in the run log.
+
+run_name: crnn_handwritten
+
+data:
+  dataset: nust_uhwr
+  manifests_dir: data/manifests
+  text_column: text_normalized   # must match what the metrics compare against
+  image_height: 64               # NUST-UHWR ships at exactly this height
+
+model:
+  lstm_hidden: 256
+  lstm_layers: 2
+  dropout: 0.1
+
+train:
+  epochs: 30
+  batch_size: 16
+  lr: 0.0003
+  weight_decay: 0.01
+  grad_clip: 5.0
+  seed: 42
+  num_workers: 0                 # 0 on Windows; raise to 2-4 in Colab
+  amp: false                     # mixed precision: leave off on CPU, on for GPU
+
+  # Validation runs every epoch. Keep the full split unless smoke testing.
+  limit_train: null              # null = use everything
+  limit_val: null
+
+output:
+  checkpoints_dir: outputs/checkpoints
+  metrics_dir: outputs/metrics

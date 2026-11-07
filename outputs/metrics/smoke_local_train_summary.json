@@ -1,0 +1,51 @@
+{
+  "run_name": "smoke_local",
+  "device": "cpu",
+  "mixed_precision": false,
+  "n_parameters": 8761710,
+  "train_samples": 300,
+  "val_samples": 100,
+  "epochs_run": 2,
+  "best_epoch": 1,
+  "best_val_cer": 1.0,
+  "best_val_wer": 1.0,
+  "total_train_seconds": 708.6929897000082,
+  "peak_memory_mb": null,
+  "overrides": [
+    "train.epochs: 30 -> 2",
+    "train.batch_size: 16 -> 8",
+    "train.limit_train: None -> 300",
+    "train.limit_val: None -> 100",
+    "run_name: crnn_handwritten -> smoke_local"
+  ],
+  "config": {
+    "run_name": "smoke_local",
+    "data": {
+      "dataset": "nust_uhwr",
+      "manifests_dir": "data/manifests",
+      "text_column": "text_normalized",
+      "image_height": 64
+    },
+    "model": {
+      "lstm_hidden": 256,
+      "lstm_layers": 2,
+      "dropout": 0.1
+    },
+    "train": {
+      "epochs": 2,
+      "batch_size": 8,
+      "lr": 0.0003,
+      "weight_decay": 0.01,
+      "grad_clip": 5.0,
+      "seed": 42,
+      "num_workers": 0,
+      "amp": false,
+      "limit_train": 300,
+      "limit_val": 100
+    },
+    "output": {
+      "checkpoints_dir": "outputs/checkpoints",
+      "metrics_dir": "outputs/metrics"
+    }
+  }
+}

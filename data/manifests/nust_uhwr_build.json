@@ -1,0 +1,38 @@
+{
+  "dataset": "nust_uhwr",
+  "source_root": "E:\\alqama_nust\\urdu_ocr_project\\data\\raw\\nust_uhwr\\UHWR",
+  "domain": "handwritten",
+  "granularity": "line",
+  "normalization": "normalize_for_eval (NFKC + invisible removal + Arabic variant folding + whitespace collapse)",
+  "splits": {
+    "train": {
+      "shipped_records": 8483,
+      "written": 8483,
+      "excluded": 0,
+      "labels_changed_by_normalization": 385,
+      "distinct_chars_after_normalization": 109
+    },
+    "val": {
+      "shipped_records": 1061,
+      "written": 1060,
+      "excluded": 1,
+      "labels_changed_by_normalization": 45,
+      "distinct_chars_after_normalization": 88
+    },
+    "test": {
+      "shipped_records": 1061,
+      "written": 1061,
+      "excluded": 0,
+      "labels_changed_by_normalization": 60,
+      "distinct_chars_after_normalization": 91
+    }
+  },
+  "total_rows": 10604,
+  "exclusions": [
+    {
+      "image_id": "04745.jpg",
+      "split": "val",
+      "reason": "byte-identical to training image 04746.jpg (MD5 b0b7bf6baf997080550f0dff00e2891e) and its label does not match its image. Visual inspection confirmed the image shows the TRAIN label, so this validation record is mislabelled. Excluding it closes a train/validation leak and removes a record that would penalise a correct reading."
+    }
+  ]
+}

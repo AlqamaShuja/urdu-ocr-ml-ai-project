@@ -1,0 +1,45 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Datasets (never commit raw/processed data)
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Manifests: small CSV/JSON may be committed deliberately, large ones ignored
+data/manifests/*.zip
+data/manifests/*.tar*
+
+# Model outputs
+outputs/checkpoints/*
+!outputs/checkpoints/.gitkeep
+outputs/predictions/*
+!outputs/predictions/.gitkeep
+outputs/figures/*
+!outputs/figures/.gitkeep
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Logs / local env
+*.log
+.env
+env_report.txt
+
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/

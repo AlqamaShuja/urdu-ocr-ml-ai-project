@@ -1,0 +1,41 @@
+# Local development dependencies (Windows, Python 3.12, CPU only).
+#
+# Purpose: lightweight data inspection, preprocessing, evaluation and small CPU
+# smoke tests on the local machine. Heavy GPU training dependencies (CUDA
+# PyTorch, transformers, peft, accelerate) are installed separately in Google
+# Colab and are not listed here.
+#
+# Versions are pinned exactly, on purpose. An unpinned install resolves to the
+# newest release of every package, which pulled in pandas 3.x and opencv 5.x --
+# major versions whose APIs differ from almost all existing OCR tutorials and
+# documentation. The pins below stay on the mature line of each package, so that
+# published examples apply and results stay reproducible across machines.
+#
+# PyTorch is NOT listed here: on Windows it must come from the official CPU
+# index. See README.md, "Install PyTorch (CPU)". Pinned version: torch 2.15.0+cpu.
+#
+# After installing, run `python scripts/freeze_env.py` to regenerate
+# requirements-lock.txt with every transitive dependency resolved.
+
+# --- Numerical and tabular data ---
+numpy==2.2.6
+pandas==2.3.3
+
+# --- Image loading and preprocessing ---
+pillow==11.3.0
+opencv-python==4.14.0.94
+
+# --- Plotting ---
+matplotlib==3.10.9
+
+# --- OCR evaluation (CER / WER) ---
+# jiwer 3.x is the line the published CER/WER examples target.
+jiwer==3.1.0
+
+# --- Utilities ---
+tqdm==4.70.1
+pyyaml==6.0.3
+
+# --- Notebooks ---
+jupyter==1.1.1
+ipykernel==6.31.0
