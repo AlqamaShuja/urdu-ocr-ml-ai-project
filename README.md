@@ -2,6 +2,13 @@
 
 Master's-level Machine Learning & AI project, NUST (PNEC).
 
+## For AI coding agents
+
+Start with **[CLAUDE.md](CLAUDE.md)**, then **[docs/CRNN.md](docs/CRNN.md)** or
+**[docs/VLM.md](docs/VLM.md)** depending on what you are working on. Those files
+carry the project rules, the decisions already made and the open issues, and they
+must be updated whenever the project changes.
+
 ## Research question
 
 How do a CRNN + CTC baseline and a parameter-efficiently fine-tuned small

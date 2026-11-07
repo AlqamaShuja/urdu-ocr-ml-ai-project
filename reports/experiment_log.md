@@ -446,3 +446,46 @@ one measurement, not a benchmark, but the conclusion is not marginal.
 split still untouched; no printed data; no VLM.
 
 ---
+
+## 2026-11-07 - Local demo run on CPU (not a research result)
+
+Purpose: give the researcher a checkpoint that produces *something*, so the
+single-image demo script can be tried by hand. **Not a reportable result.**
+
+`--limit-train 1000 --limit-val 100 --epochs 10 --batch-size 8 --lr 0.001`
+(lr raised from the config's 3e-4, which is too slow to leave the blank phase
+within a CPU time budget.)
+
+| Epoch | train_loss | val_loss | val_CER | val_WER |
+| --- | --- | --- | --- | --- |
+| 1 | 3.5284 | 3.6379 | 1.0000 | 1.0000 |
+| 5 | 3.0293 | 5.6080 | 0.9814 | 1.0000 |
+| 8 | 2.9355 | 6.0604 | 0.9781 | 1.0000 |
+| 9 | 2.9293 | 2.9399 | 0.8305 | 1.0026 |
+| 10 | 2.9149 | 2.9350 | **0.8143** | 1.0044 |
+
+Total 6,637 s (1.84 hours) on CPU. Exit code 0.
+
+**The model left the all-blanks phase**: 0 of 100 validation predictions are now
+empty, against 100 of 100 in the earlier smoke run. That is the only thing this
+run demonstrates.
+
+**What it actually predicts** is the most frequent character and a rough word
+rhythm, nothing more:
+
+    ref : میں ہم یہ جنگ جیت سکتے ہیں لیکن اس کیلئے حکمت عملی تبدیل
+    pred: ک   ک ک ک ک ک ک ک ک
+
+CER 0.81 and WER slightly above 1.0 (it inserts more word-like tokens than it
+gets right) describe exactly that. This is the expected second stage of CTC
+learning: blanks, then the dominant character, then real characters.
+
+**Scale of the gap.** This run did about 1,250 optimiser steps. The planned Colab
+run is 8,483 samples at batch 16 for 30 epochs, roughly 16,000 steps - more than
+ten times as many, on eight times the data. CPU training is not a slower route to
+the same answer within any practical budget.
+
+Checkpoint kept at outputs/checkpoints/local_demo_best.pt for demo use only. It
+must never appear in a results table.
+
+---
