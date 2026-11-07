@@ -40,6 +40,8 @@ from src.crnn.model import output_width
 from src.data.vocabulary import Vocabulary
 
 __all__ = [
+    "NUST_UHWR_PIXEL_MEAN",
+    "NUST_UHWR_PIXEL_STD",
     "LineImageDataset",
     "Sample",
     "WidthBucketSampler",
@@ -48,20 +50,34 @@ __all__ = [
 ]
 
 # Images are dark ink on light paper, so the background is the high end of the
-# range. Padding with this keeps added columns blank rather than inky.
-BACKGROUND_VALUE = 1.0
+# raw 0-1 range. Padding uses it so added columns stay blank rather than inky.
+RAW_BACKGROUND_VALUE = 1.0
+
+# Pixel statistics measured over all 8,483 NUST-UHWR TRAINING images
+# (515,685,248 pixels). Validation and test were not touched, so no information
+# leaks from them into the input scaling.
+#
+# WHY THIS MATTERS. Raw images have mean 0.953 and standard deviation 0.186:
+# 93% of pixels are near-white paper and the ink that carries all the signal is
+# about 7%. A CNN fed an almost-constant 0.95 is badly conditioned, and this
+# model's first convolution has no BatchNorm after it (following the original
+# CRNN design), so nothing downstream rescues it. Standardising to mean 0 and
+# unit variance is the standard fix.
+NUST_UHWR_PIXEL_MEAN = 0.953208
+NUST_UHWR_PIXEL_STD = 0.186242
 
 
 @dataclass(frozen=True)
 class Sample:
     """One manifest row, resolved to tensors."""
 
-    image: torch.Tensor  # (1, H, W), float in [0, 1], 1.0 = background
+    image: torch.Tensor  # (1, H, W), standardised to roughly mean 0 / unit variance
     targets: torch.Tensor  # (L,) int64 vocabulary indices
     input_length: int  # frames the CNN will produce for the true width
     target_length: int
     image_id: str
     text: str  # the normalized reference this sample is scored against
+    pad_value: float  # background in the SAME space as `image`, for padding
 
 
 class LineImageDataset(Dataset[Sample]):
@@ -88,12 +104,19 @@ class LineImageDataset(Dataset[Sample]):
         text_column: str = "text_normalized",
         expected_height: int = 64,
         limit: int | None = None,
+        pixel_mean: float = NUST_UHWR_PIXEL_MEAN,
+        pixel_std: float = NUST_UHWR_PIXEL_STD,
     ) -> None:
         self.manifest = Path(manifest)
         self.vocabulary = vocabulary
         self.project_root = Path(project_root)
         self.text_column = text_column
         self.expected_height = expected_height
+        self.pixel_mean = pixel_mean
+        self.pixel_std = pixel_std
+        # Background in standardised space. Padding must be expressed here, not as
+        # raw 1.0, or padded columns would read as a huge positive signal.
+        self.pad_value = (RAW_BACKGROUND_VALUE - pixel_mean) / pixel_std
 
         with self.manifest.open("r", encoding="utf-8", newline="") as handle:
             rows = list(csv.DictReader(handle))
@@ -132,6 +155,10 @@ class LineImageDataset(Dataset[Sample]):
             image = handle.convert("L")  # grayscale, 8-bit
             array = np.asarray(image, dtype=np.float32) / 255.0
 
+        # Standardise to roughly mean 0, unit variance. See the module constants
+        # for why: raw inputs sit at mean 0.953 with std 0.186.
+        array = (array - self.pixel_mean) / self.pixel_std
+
         if array.shape[0] != self.expected_height:
             raise ValueError(
                 f"{row['image_id']}: expected height {self.expected_height}, "
@@ -148,6 +175,7 @@ class LineImageDataset(Dataset[Sample]):
             target_length=len(targets),
             image_id=row["image_id"],
             text=text,
+            pad_value=self.pad_value,
         )
 
 
@@ -178,7 +206,7 @@ def collate_batch(samples: list[Sample]) -> Batch:
 
     images = torch.full(
         (len(samples), 1, height, max_width),
-        fill_value=BACKGROUND_VALUE,
+        fill_value=samples[0].pad_value,
         dtype=torch.float32,
     )
     for i, sample in enumerate(samples):

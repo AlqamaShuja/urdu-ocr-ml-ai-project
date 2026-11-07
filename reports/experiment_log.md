@@ -489,3 +489,77 @@ Checkpoint kept at outputs/checkpoints/local_demo_best.pt for demo use only. It
 must never appear in a results table.
 
 ---
+
+## 2026-11-08 - First full GPU run PLATEAUED; two causes found, one disproved
+
+**Run `crnn_handwritten`:** 30 epochs, Tesla T4, batch 16, lr 3e-4, AMP on,
+random batching. Best val CER 0.7258 at epoch 27. Demo output on a real line was
+`ک ک ک کے کے کک ک کے` - the dominant character and a word rhythm, nothing more.
+
+**The log showed it was stuck, not slow:**
+
+| Epoch | train_loss |
+| --- | --- |
+| 3 | 2.8899 |
+| 10 | 2.8520 |
+| 20 | 2.8509 |
+| 30 | 2.8396 |
+
+0.05 of loss over 27 epochs. Train and validation loss were both ~2.85, so this
+is not overfitting - the model simply stopped learning.
+
+### Cause 1: width padding polluting BatchNorm - REAL, but NOT the plateau
+
+Widths run 200-2,170 px. With random batching, **33.7% of every batch tensor was
+blank padding**. CTC ignores padding via `input_lengths`; BatchNorm does not, and
+computes its statistics over it, with the padding fraction varying per batch.
+
+`WidthBucketSampler` added (`src/crnn/dataset.py`) and wired into `train.py`.
+Padding 33.7% -> 0.2%. The earlier tiny overfit test had passed only because it
+used the eight narrowest images, where padding is negligible - it masked this.
+
+**Diagnostic run `diag`:** bucketed, lr 1e-3, AMP off, 5 epochs, full data.
+
+| Epoch | old run (random, 3e-4, AMP) | diag (bucketed, 1e-3, no AMP) |
+| --- | --- | --- |
+| 3 | 2.8899 / CER 0.797 | 2.9926 / CER 0.906 |
+| 4 | 2.8810 / CER 0.782 | 2.9206 / CER 0.776 |
+| 5 | **2.8684** / CER 0.781 | **2.8978** / CER 0.851 |
+
+**The fix did not help.** At matched epochs the bucketed run is marginally worse.
+Bucketing remains correct and keeps 33.7% of compute from being wasted, but it was
+not the cause of the plateau. Recorded as a disproved hypothesis.
+
+### Cause 2: inputs were never standardised - found by measurement
+
+Pixel statistics over all 8,483 **training** images (515,685,248 pixels; val and
+test deliberately not touched):
+
+| Statistic | Value | Wanted |
+| --- | --- | --- |
+| mean | **0.953208** | ~0 |
+| std | **0.186242** | ~1 |
+| pixels above 0.9 | **93%** | - |
+
+The network was being fed an almost-constant 0.95, with the ink carrying all the
+signal in about 7% of pixels. This model's first convolution has **no BatchNorm**
+after it (as in the original CRNN design), so nothing downstream corrects it.
+
+**Fix applied.** `LineImageDataset` now standardises with the measured training
+statistics, and padding is expressed in the same space (white becomes +0.2512, not
+1.0) so padded columns do not read as a large positive signal.
+`scripts/predict_image.py` normalises identically - a mismatch there would produce
+nonsense silently.
+
+Verified on a real batch: input mean/std now **0.0566 / 0.8830**, was 0.953/0.186.
+
+**Checkpoint compatibility:** every checkpoint trained before this change expects
+unnormalised input and is now invalid. `crnn_handwritten_best.pt`, `diag_best.pt`,
+`local_demo_best.pt`, `bucket_check_best.pt`, `smoke_local_best.pt` must all be
+discarded, not re-used.
+
+**Not yet proven.** This is a well-founded fix from measured evidence, but it has
+not been shown to lift the plateau. The next diagnostic must confirm that train
+loss goes below 2.8 before any full run is spent.
+
+---

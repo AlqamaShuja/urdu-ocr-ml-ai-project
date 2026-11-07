@@ -76,9 +76,16 @@ dataset, which ships at height 32.
 
 ## Gotchas that cost time before - do not undo these
 
-- **Padding uses the BACKGROUND value (1.0 = white), not zero.** These are dark ink
-  on light paper. Zero padding pastes black blocks onto short lines and teaches the
-  model that ink appears at the end of every short image.
+- **Inputs are standardised with the measured TRAINING-split pixel statistics**
+  (mean 0.953208, std 0.186242, in `src/crnn/dataset.py`). Raw images are 93%
+  near-white, so an unstandardised input is an almost-constant 0.95 with the ink
+  carrying all the signal in ~7% of pixels, and the first convolution has no
+  BatchNorm to rescue it. `scripts/predict_image.py` applies the identical
+  transform - a mismatch there produces nonsense silently.
+- **Padding is expressed in the standardised space**, not as raw 1.0. White becomes
+  +0.2512. Padding with 1.0 after standardising would make padded columns a large
+  positive signal. Never pad with zero either: these are dark ink on light paper,
+  so zero padding would paste black blocks onto short lines.
 - **`input_lengths` come from each sample's TRUE width**, never the padded batch
   width. Otherwise CTC is told to account for padding as if it were image.
 - **CTC loss runs in float32 even under AMP.** It sums many log probabilities and
@@ -94,6 +101,10 @@ dataset, which ships at height 32.
   breaks reference/hypothesis alignment the moment an untrained model predicts "".
   This was a real bug caught by the overfit test; four regression tests guard it.
 - **`float(loss.detach())`**, not `float(loss)`, in the training loop.
+- **Batches are width-bucketed** (`WidthBucketSampler`). With random batching 33.7%
+  of every batch tensor was blank padding, which BatchNorm folds into its
+  statistics. This is a correctness fix, not a speed option. Note it did **not**
+  lift the training plateau on its own - see "Results so far".
 
 ---
 
@@ -145,6 +156,25 @@ non-empty but CER stays high, suspect label encoding or decoding. If loss does n
 fall at all, suspect the gradient path, learning rate, or CTC lengths.
 
 ---
+
+## The training plateau - history, so it is not rediscovered
+
+The first full GPU run (30 epochs, T4, batch 16, lr 3e-4, AMP, random batching)
+**stalled**: training loss sat at 2.89 at epoch 3 and 2.84 at epoch 30, best val
+CER 0.7258. Train and validation loss were equal, so it was not overfitting.
+
+| Hypothesis | Evidence | Verdict |
+| --- | --- | --- |
+| Width padding polluting BatchNorm | 33.7% of each batch tensor was padding | **real bug, fixed** - but a 5-epoch bucketed diagnostic matched the old run epoch for epoch, so **not the cause of the plateau** |
+| Inputs never standardised | measured mean 0.953, std 0.186, 93% of pixels near-white | **real, fixed** - not yet proven to lift the plateau |
+| AMP destabilising LSTM/CTC | not isolated yet | untested |
+| Learning rate | 3e-4 and 1e-3 both plateau at ~2.85-2.90 | unlikely to be the whole story |
+
+**Every checkpoint trained before the normalisation fix is invalid** - it expects
+unstandardised input. Discard them, do not evaluate or demo with them.
+
+**Next diagnostic must be 5 epochs, not 30.** The question is only whether train
+loss goes below 2.8. Do not spend a full run until it does.
 
 ## Results so far - NONE are reportable
 

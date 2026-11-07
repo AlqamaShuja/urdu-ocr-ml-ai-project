@@ -35,6 +35,10 @@ from PIL import Image
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.crnn.dataset import (  # noqa: E402
+    NUST_UHWR_PIXEL_MEAN,
+    NUST_UHWR_PIXEL_STD,
+)
 from src.crnn.decode import greedy_decode  # noqa: E402
 from src.crnn.model import CRNN, output_width  # noqa: E402
 from src.data.vocabulary import Vocabulary  # noqa: E402
@@ -75,6 +79,10 @@ def load_image(path: Path, target_height: int) -> tuple[torch.Tensor, list[str]]
             image = image.resize((new_width, target_height), Image.Resampling.LANCZOS)
 
         array = np.asarray(image, dtype=np.float32) / 255.0
+
+    # Must match the training pipeline exactly. An image fed to the model on a
+    # different scale than it was trained on produces nonsense, and silently.
+    array = (array - NUST_UHWR_PIXEL_MEAN) / NUST_UHWR_PIXEL_STD
 
     # The model needs at least one frame per character it must emit. Very narrow
     # images simply cannot produce a long transcription.
