@@ -47,7 +47,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.crnn.dataset import LineImageDataset, collate_batch  # noqa: E402
+from src.crnn.dataset import (  # noqa: E402
+    LineImageDataset,
+    WidthBucketSampler,
+    collate_batch,
+)
 from src.crnn.decode import greedy_decode  # noqa: E402
 from src.crnn.model import CRNN  # noqa: E402
 from src.data.vocabulary import BLANK_INDEX, Vocabulary  # noqa: E402
@@ -58,6 +62,28 @@ for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8")
     except (AttributeError, OSError):
         pass
+
+
+def _random_batch_padding_fraction(widths: list[int], batch_size: int) -> float:
+    """Padding share a RANDOM batching of these widths would produce.
+
+    Reported next to the bucketed figure so the run log shows what bucketing
+    actually bought. Averaged over a few random shuffles.
+    """
+    import statistics
+
+    samples = []
+    for _ in range(5):
+        order = list(range(len(widths)))
+        random.shuffle(order)
+        total_padding = total_cells = 0
+        for start in range(0, len(order), batch_size):
+            batch = order[start : start + batch_size]
+            widest = max(widths[i] for i in batch)
+            total_cells += widest * len(batch)
+            total_padding += sum(widest - widths[i] for i in batch)
+        samples.append(total_padding / total_cells)
+    return statistics.mean(samples)
 
 
 def set_seed(seed: int) -> None:
@@ -105,6 +131,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit-train", type=int, default=None)
     parser.add_argument("--limit-val", type=int, default=None)
     parser.add_argument("--amp", action="store_true", help="mixed precision (GPU only)")
+    parser.add_argument("--no-bucket", action="store_true",
+                        help="disable width-bucketed batching (not recommended)")
     parser.add_argument("--resume", type=Path, default=None, help="checkpoint to continue from")
     return parser
 
@@ -129,6 +157,9 @@ def apply_overrides(config: dict[str, Any], args: argparse.Namespace) -> list[st
     if args.amp:
         applied.append(f"train.amp: {config['train']['amp']} -> True")
         config["train"]["amp"] = True
+    if args.no_bucket:
+        applied.append("train.bucket_by_width: True -> False")
+        config["train"]["bucket_by_width"] = False
     if args.run_name:
         applied.append(f"run_name: {config['run_name']} -> {args.run_name}")
         config["run_name"] = args.run_name
@@ -216,14 +247,32 @@ def main() -> int:
         manifests / f"{dataset_name}_val.csv", limit=train_cfg["limit_val"], **common
     )
 
+    batch_size = int(train_cfg["batch_size"])
     loader_kwargs = {
-        "batch_size": int(train_cfg["batch_size"]),
         "collate_fn": collate_batch,
         "num_workers": int(train_cfg["num_workers"]),
         "pin_memory": device.type == "cuda",
     }
-    train_loader = DataLoader(train_set, shuffle=True, drop_last=False, **loader_kwargs)
-    val_loader = DataLoader(val_set, shuffle=False, drop_last=False, **loader_kwargs)
+
+    bucket = bool(train_cfg.get("bucket_by_width", True))
+    if bucket:
+        # Width-homogeneous batches. See WidthBucketSampler for why this is a
+        # correctness fix rather than a speed option: BatchNorm statistics are
+        # computed over padding too, and mixed-width batches destabilise them.
+        train_sampler = WidthBucketSampler(train_set.widths, batch_size, shuffle=True)
+        val_sampler = WidthBucketSampler(val_set.widths, batch_size, shuffle=False)
+        train_loader = DataLoader(train_set, batch_sampler=train_sampler, **loader_kwargs)
+        val_loader = DataLoader(val_set, batch_sampler=val_sampler, **loader_kwargs)
+        padding_before = _random_batch_padding_fraction(train_set.widths, batch_size)
+        padding_after = train_sampler.padding_fraction(train_set.widths)
+    else:
+        train_loader = DataLoader(
+            train_set, batch_size=batch_size, shuffle=True, drop_last=False, **loader_kwargs
+        )
+        val_loader = DataLoader(
+            val_set, batch_size=batch_size, shuffle=False, drop_last=False, **loader_kwargs
+        )
+        padding_before = padding_after = None
 
     model = CRNN(
         n_classes=vocabulary.size,
@@ -266,6 +315,12 @@ def main() -> int:
     print(f"  parameters    : {model.n_parameters():,}")
     print(f"  batch size    : {train_cfg['batch_size']}, lr {train_cfg['lr']}, "
           f"seed {train_cfg['seed']}")
+    if bucket:
+        print(f"  batching      : width-bucketed. Padding in a batch tensor "
+              f"{padding_before:.1%} -> {padding_after:.1%}")
+    else:
+        print("  batching      : RANDOM. BatchNorm statistics will be polluted by "
+              "padding; see WidthBucketSampler.")
     print(f"  epochs        : {start_epoch}..{train_cfg['epochs']}")
     if overrides:
         print("  overrides     : " + "; ".join(overrides))
@@ -418,6 +473,9 @@ def main() -> int:
                 "best_val_wer": best.val_wer if best else None,
                 "total_train_seconds": total_train,
                 "peak_memory_mb": peak_memory_mb(device),
+                "bucket_by_width": bucket,
+                "padding_fraction_random": padding_before,
+                "padding_fraction_bucketed": padding_after,
                 "overrides": overrides,
                 "config": config,
             },

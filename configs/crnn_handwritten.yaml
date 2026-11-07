@@ -22,12 +22,21 @@ model:
 train:
   epochs: 30
   batch_size: 16
-  lr: 0.0003
+  # Raised from 3e-4 after the first full GPU run plateaued: training loss sat at
+  # ~2.85 from epoch 3 to epoch 30 and CER never fell below 0.73. 1e-3 is the rate
+  # that worked in the overfit test and the local demo run.
+  lr: 0.001
   weight_decay: 0.01
   grad_clip: 5.0
   seed: 42
   num_workers: 0                 # 0 on Windows; raise to 2-4 in Colab
   amp: false                     # mixed precision: leave off on CPU, on for GPU
+
+  # Width-homogeneous batches. This is a CORRECTNESS fix, not a speed option:
+  # with random batching 33.8% of every batch tensor was blank padding, and
+  # BatchNorm computes its statistics over padding too. Bucketing takes that to
+  # 0.2%. See WidthBucketSampler in src/crnn/dataset.py.
+  bucket_by_width: true
 
   # Validation runs every epoch. Keep the full split unless smoke testing.
   limit_train: null              # null = use everything

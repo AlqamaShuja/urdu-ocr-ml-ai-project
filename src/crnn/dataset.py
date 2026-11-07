@@ -26,18 +26,26 @@ off by default and should not be used for the final training run without noting 
 from __future__ import annotations
 
 import csv
+import random
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import torch
 from PIL import Image
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 
 from src.crnn.model import output_width
 from src.data.vocabulary import Vocabulary
 
-__all__ = ["LineImageDataset", "Sample", "collate_batch", "width_bucketed_indices"]
+__all__ = [
+    "LineImageDataset",
+    "Sample",
+    "WidthBucketSampler",
+    "collate_batch",
+    "width_bucketed_indices",
+]
 
 # Images are dark ink on light paper, so the background is the high end of the
 # range. Padding with this keeps added columns blank rather than inky.
@@ -188,10 +196,59 @@ def collate_batch(samples: list[Sample]) -> Batch:
 
 
 def width_bucketed_indices(widths: list[int], batch_size: int) -> list[list[int]]:
-    """Group indices so each batch holds similar widths, minimising padding.
-
-    Speeds training up, but it also destroys shuffling. If a run uses this, say so
-    in the experiment log.
-    """
+    """Group indices so each batch holds similar widths, minimising padding."""
     order = sorted(range(len(widths)), key=lambda i: widths[i])
     return [order[i : i + batch_size] for i in range(0, len(order), batch_size)]
+
+
+class WidthBucketSampler(Sampler[list[int]]):
+    """Batch sampler that puts images of similar width in the same batch.
+
+    **This is a correctness fix, not only a speed optimisation.**
+
+    Widths here run from 200 to 2,170 pixels. With random batching, a batch holding
+    both extremes pads the narrow image with roughly 1,970 columns of blank
+    background. CTC ignores that padding because it is given the true
+    `input_lengths` - but **BatchNorm does not**. BatchNorm computes its statistics
+    over the whole padded tensor, so those statistics are dominated by padding, and
+    the proportion of padding changes from batch to batch. The normalisation the
+    network sees is then unstable, and training stalls.
+
+    That failure is exactly what happened on the first full GPU run: training loss
+    flattened at about 2.85 after three epochs and barely moved for the next
+    twenty-seven, while CER sat around 0.73. The earlier tiny overfit test passed
+    only because it used the eight narrowest images, where padding is negligible.
+
+    Batches are formed from width-sorted indices, then the **order of the batches**
+    is shuffled every epoch. So each batch is width-homogeneous, while the sequence
+    of batches is still random. Within-batch composition is fixed across epochs,
+    which is a mild reduction in randomness and is recorded in the run log.
+    """
+
+    def __init__(self, widths: list[int], batch_size: int, *, shuffle: bool = True) -> None:
+        self.batches = width_bucketed_indices(widths, batch_size)
+        self.shuffle = shuffle
+
+    def __iter__(self) -> Iterator[list[int]]:
+        order = list(range(len(self.batches)))
+        if self.shuffle:
+            random.shuffle(order)
+        for index in order:
+            yield self.batches[index]
+
+    def __len__(self) -> int:
+        return len(self.batches)
+
+    def padding_fraction(self, widths: list[int]) -> float:
+        """Share of each batch tensor that is padding, averaged over batches.
+
+        Useful for reporting the effect of bucketing: compare it against the
+        unbucketed value before and after.
+        """
+        total_padding = 0
+        total_cells = 0
+        for batch in self.batches:
+            widest = max(widths[i] for i in batch)
+            total_cells += widest * len(batch)
+            total_padding += sum(widest - widths[i] for i in batch)
+        return total_padding / total_cells if total_cells else 0.0

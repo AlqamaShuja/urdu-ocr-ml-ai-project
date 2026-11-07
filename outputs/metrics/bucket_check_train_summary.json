@@ -1,0 +1,54 @@
+{
+  "run_name": "bucket_check",
+  "device": "cpu",
+  "mixed_precision": false,
+  "n_parameters": 8761710,
+  "train_samples": 1000,
+  "val_samples": 100,
+  "epochs_run": 5,
+  "best_epoch": 1,
+  "best_val_cer": 1.0,
+  "best_val_wer": 1.0,
+  "total_train_seconds": 1895.216184000019,
+  "peak_memory_mb": null,
+  "bucket_by_width": true,
+  "padding_fraction_random": 0.34187540955373963,
+  "padding_fraction_bucketed": 0.011448880947283477,
+  "overrides": [
+    "train.epochs: 30 -> 5",
+    "train.limit_train: None -> 1000",
+    "train.limit_val: None -> 100",
+    "run_name: crnn_handwritten -> bucket_check"
+  ],
+  "config": {
+    "run_name": "bucket_check",
+    "data": {
+      "dataset": "nust_uhwr",
+      "manifests_dir": "data/manifests",
+      "text_column": "text_normalized",
+      "image_height": 64
+    },
+    "model": {
+      "lstm_hidden": 256,
+      "lstm_layers": 2,
+      "dropout": 0.1
+    },
+    "train": {
+      "epochs": 5,
+      "batch_size": 16,
+      "lr": 0.001,
+      "weight_decay": 0.01,
+      "grad_clip": 5.0,
+      "seed": 42,
+      "num_workers": 0,
+      "amp": false,
+      "bucket_by_width": true,
+      "limit_train": 1000,
+      "limit_val": 100
+    },
+    "output": {
+      "checkpoints_dir": "outputs/checkpoints",
+      "metrics_dir": "outputs/metrics"
+    }
+  }
+}
