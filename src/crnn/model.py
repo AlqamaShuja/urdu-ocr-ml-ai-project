@@ -50,7 +50,41 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-__all__ = ["CRNN", "output_width"]
+__all__ = ["CRNN", "GROUP_NORM_GROUPS", "output_width"]
+
+# Channels per GroupNorm group. 32 is the value the GroupNorm paper settles on and
+# divides every channel count used here (64, 128, 256, 512).
+GROUP_NORM_GROUPS = 32
+
+
+def _norm(channels: int) -> nn.Module:
+    """Normalisation layer for the CNN.
+
+    **GroupNorm, deliberately not BatchNorm.**
+
+    BatchNorm normalises each batch by that batch's own mean and variance while
+    training, then switches to running averages at evaluation time. That only works
+    when batches look alike. Here they do not: images are 200 to 2,170 pixels wide
+    and batches are width-bucketed, so one batch is entirely narrow images and the
+    next is entirely wide ones, with very different statistics. The running average
+    then matches no real batch, and the model works in training but falls apart in
+    evaluation.
+
+    That is exactly what was observed. A model trained to loss 0.14 on 200
+    memorised samples - about 87% confidence per character - still decoded those
+    same samples at CER 0.36. The only difference between the two numbers is
+    train() mode versus eval() mode, which for this network means BatchNorm.
+
+    GroupNorm normalises over channel groups within each individual sample. It
+    keeps no running state, behaves identically in training and evaluation, and
+    does not care what else is in the batch or how wide the image is. It is the
+    standard choice for variable-sized inputs.
+
+    It is now applied after **every** convolution, not just two of them as in the
+    original CRNN design. The first layers previously had no normalisation at all,
+    which left them exposed to the input distribution.
+    """
+    return nn.GroupNorm(num_groups=min(GROUP_NORM_GROUPS, channels), num_channels=channels)
 
 
 def output_width(input_width: int) -> int:
@@ -96,12 +130,12 @@ class CRNN(nn.Module):
         self.n_classes = n_classes
         self.input_height = input_height
 
-        def conv_block(in_ch: int, out_ch: int, batch_norm: bool = False) -> list[nn.Module]:
-            layers: list[nn.Module] = [nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1)]
-            if batch_norm:
-                layers.append(nn.BatchNorm2d(out_ch))
-            layers.append(nn.ReLU(inplace=True))
-            return layers
+        def conv_block(in_ch: int, out_ch: int, **_: object) -> list[nn.Module]:
+            return [
+                nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1),
+                _norm(out_ch),
+                nn.ReLU(inplace=True),
+            ]
 
         layers: list[nn.Module] = []
         # Height 64 -> 32, width W -> W/2
@@ -111,11 +145,11 @@ class CRNN(nn.Module):
         layers += conv_block(64, 128)
         layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
         # Height 16 -> 8, width unchanged
-        layers += conv_block(128, 256, batch_norm=True)
+        layers += conv_block(128, 256)
         layers += conv_block(256, 256)
         layers.append(nn.MaxPool2d(kernel_size=(2, 1), stride=(2, 1)))
         # Height 8 -> 4, width unchanged
-        layers += conv_block(256, 512, batch_norm=True)
+        layers += conv_block(256, 512)
         layers += conv_block(512, 512)
         layers.append(nn.MaxPool2d(kernel_size=(2, 1), stride=(2, 1)))
 
@@ -124,7 +158,7 @@ class CRNN(nn.Module):
         remaining_height = input_height // 16
         layers += [
             nn.Conv2d(512, 512, kernel_size=(remaining_height, 1)),
-            nn.BatchNorm2d(512),
+            _norm(512),
             nn.ReLU(inplace=True),
         ]
         self.cnn = nn.Sequential(*layers)
