@@ -3,6 +3,31 @@
 Both models read the same manifests, so the CRNN and the VLM are guaranteed to
 train and be evaluated on identical examples.
 
+### Right-to-left script and CTC
+
+**Images are mirrored left-to-right before being fed to the model.** This is not
+cosmetic; without it the model cannot learn at all.
+
+Urdu is written right to left, so the **first** character of a transcription is at
+the **right-hand** end of the image. The CNN scans left to right, so its first
+feature frame covers the **last** character of the string, and its last frame
+covers the first.
+
+CTC can only align a target to the input **monotonically**: target character *i*
+must align to a frame at or after the frame for character *i-1*. With an unflipped
+Urdu line the required alignment runs backwards, which CTC cannot express. The
+model is left able to learn the marginal character distribution - mostly the
+commonest letter and a word rhythm - but never to read.
+
+Mirroring the image puts the first character in the first frame and restores a
+monotonic alignment. UTRNet, a published Urdu OCR model, applies the same
+left-right flip.
+
+**The stored text is never touched.** Transcriptions stay in logical order in the
+manifests, in the vocabulary, in the metrics and in every saved prediction. Only
+the pixels are mirrored, inside the loader, and `scripts/predict_image.py` applies
+the identical flip so a hand-supplied image is treated the same way.
+
 ### Variable widths
 
 Line images share a height but not a width - NUST-UHWR runs from 200 to 2,170
@@ -106,6 +131,7 @@ class LineImageDataset(Dataset[Sample]):
         limit: int | None = None,
         pixel_mean: float = NUST_UHWR_PIXEL_MEAN,
         pixel_std: float = NUST_UHWR_PIXEL_STD,
+        flip_horizontal: bool = True,
     ) -> None:
         self.manifest = Path(manifest)
         self.vocabulary = vocabulary
@@ -114,6 +140,7 @@ class LineImageDataset(Dataset[Sample]):
         self.expected_height = expected_height
         self.pixel_mean = pixel_mean
         self.pixel_std = pixel_std
+        self.flip_horizontal = flip_horizontal
         # Background in standardised space. Padding must be expressed here, not as
         # raw 1.0, or padded columns would read as a huge positive signal.
         self.pad_value = (RAW_BACKGROUND_VALUE - pixel_mean) / pixel_std
@@ -155,9 +182,16 @@ class LineImageDataset(Dataset[Sample]):
             image = handle.convert("L")  # grayscale, 8-bit
             array = np.asarray(image, dtype=np.float32) / 255.0
 
+        if self.flip_horizontal:
+            # Mirror the image left-to-right. See the module docstring section
+            # "Right-to-left script and CTC" - without this the target sequence
+            # runs backwards relative to the feature sequence, and CTC's
+            # monotonic alignment cannot express that at all.
+            array = array[:, ::-1]
+
         # Standardise to roughly mean 0, unit variance. See the module constants
         # for why: raw inputs sit at mean 0.953 with std 0.186.
-        array = (array - self.pixel_mean) / self.pixel_std
+        array = (np.ascontiguousarray(array) - self.pixel_mean) / self.pixel_std
 
         if array.shape[0] != self.expected_height:
             raise ValueError(

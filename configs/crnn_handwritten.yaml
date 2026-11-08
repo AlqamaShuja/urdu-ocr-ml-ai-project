@@ -14,6 +14,14 @@ data:
   text_column: text_normalized   # must match what the metrics compare against
   image_height: 64               # NUST-UHWR ships at exactly this height
 
+  # Mirror each image left-to-right before the model sees it.
+  # Urdu is right-to-left, so the FIRST character of a transcription sits at the
+  # RIGHT of the image, while the CNN scans left to right. CTC can only align a
+  # target to the input monotonically, so without this flip the required alignment
+  # runs backwards and cannot be expressed at all. The stored text is never
+  # reversed - only the pixels. UTRNet, a published Urdu OCR model, flips too.
+  flip_horizontal: true
+
 model:
   lstm_hidden: 256
   lstm_layers: 2

@@ -238,6 +238,7 @@ def main() -> int:
         "project_root": PROJECT_ROOT,
         "text_column": data_cfg["text_column"],
         "expected_height": int(data_cfg["image_height"]),
+        "flip_horizontal": bool(data_cfg.get("flip_horizontal", True)),
     }
     # Only train and val are opened. The test manifest is deliberately not touched.
     train_set = LineImageDataset(
