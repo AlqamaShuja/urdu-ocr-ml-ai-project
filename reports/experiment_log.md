@@ -563,3 +563,75 @@ not been shown to lift the plateau. The next diagnostic must confirm that train
 loss goes below 2.8 before any full run is spent.
 
 ---
+
+## 2026-11-12 - ROOT CAUSE FOUND: images must be mirrored for CTC
+
+**The plateau is solved.** Every run before this one stalled near CER 0.75
+regardless of learning rate, normalisation, batching or mixed precision. The cause
+was none of those.
+
+### The cause
+
+Urdu is written right to left, so the **first** character of a transcription is at
+the **right-hand** end of the image. The CNN scans left to right, so its first
+feature frame covers the **last** character of the string.
+
+CTC aligns a target to the input **monotonically**: character i must align at or
+after character i-1. With an unflipped Urdu line that alignment runs backwards. A
+BiLSTM can in principle buffer the whole line and emit it reversed, which is why
+the model was not completely dead, but it is enormously harder - in practice the
+model only ever learned the marginal character distribution.
+
+**Orientation verified by looking, not reasoning.** Cropping `07955.jpg`
+(transcription `کے والدین کے گناہ بخش دئیے جائیں گے اور فرشتوں سے کہا جائے گا`):
+
+| Crop | Content |
+| --- | --- |
+| right 32% | `کے والدین کے گناہ بخش` - the **first** characters |
+| left 32% | `کہا جائے گا` - the **last** characters |
+
+### The evidence
+
+Identical seed, data, and budget. 1,000 training samples, 60 epochs, lr 1e-3,
+GroupNorm, width-bucketed. Only the flip differs.
+
+| Epoch | no flip, train_loss | **flip**, train_loss | no flip, val CER | **flip**, val CER |
+| --- | --- | --- | --- | --- |
+| 30 | 2.9229 | 2.9042 | 0.9717 | 0.7653 |
+| 40 | 2.9523 | 2.4477 | 0.8889 | 0.6055 |
+| 50 | 3.0377 | 1.0320 | 0.7214 | 0.3420 |
+| 60 | **2.9384** | **0.4412** | **0.6999** | **0.2677** |
+
+The unflipped arm never leaves the plateau in 60 epochs. The flipped arm breaks
+out at about epoch 36 and keeps falling; at epoch 60 its loss and validation CER
+were both still dropping, and validation loss (1.05) was still falling too, so it
+had not begun to overfit.
+
+**This is the first run in the project where the model actually reads.**
+
+### A false negative worth recording
+
+An earlier 5-epoch full-data comparison came out *against* flipping - CER 0.9816
+flipped versus 0.7734 unflipped - and I nearly reverted on the strength of it. At
+5 epochs neither arm was reading; both were emitting the commonest character and a
+word rhythm. The comparison measured how quickly each settles into that
+degenerate solution, not reading ability. **A diagnostic run must be long enough
+to reach the regime it claims to measure.**
+
+### Hypotheses tested and rejected along the way
+
+All three were real improvements and are kept, but none caused the plateau:
+
+| Change | Why it was suspected | Verdict |
+| --- | --- | --- |
+| Width bucketing | 33.7% of each batch tensor was padding, folded into BatchNorm statistics | real waste, fixed; bucketed and random arms matched epoch for epoch |
+| Input standardisation | measured mean 0.953, std 0.186, 93% of pixels near-white | real, fixed; plateau unchanged |
+| GroupNorm instead of BatchNorm | train/eval output differed by 1.43e-01 on an untrained model | real, fixed; now 0.00e+00; plateau unchanged |
+
+### Also fixed
+
+`train.py` gained `--checkpoints-dir` and `--metrics-dir`. Checkpoints can now be
+written straight to mounted Drive every epoch instead of being copied after
+training, which is what cost an earlier 30-epoch run when the session died.
+
+---

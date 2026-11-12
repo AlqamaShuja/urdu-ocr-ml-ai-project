@@ -139,6 +139,11 @@ def build_parser() -> argparse.ArgumentParser:
     flip.add_argument("--no-flip", dest="flip", action="store_false",
                       help="feed images in their original orientation")
     parser.add_argument("--resume", type=Path, default=None, help="checkpoint to continue from")
+    parser.add_argument("--checkpoints-dir", type=Path, default=None,
+                        help="where to write checkpoints. Point this at mounted Drive "
+                             "in Colab so a dropped session does not lose the run.")
+    parser.add_argument("--metrics-dir", type=Path, default=None,
+                        help="where to write the run log and summary")
     return parser
 
 
@@ -306,8 +311,15 @@ def main() -> int:
         best_cer = float(checkpoint.get("best_val_cer", float("inf")))
         print(f"Resumed from {args.resume} at epoch {start_epoch}, best val CER {best_cer:.4f}\n")
 
-    checkpoints_dir = PROJECT_ROOT / out_cfg["checkpoints_dir"]
-    metrics_dir = PROJECT_ROOT / out_cfg["metrics_dir"]
+    # An absolute override (such as a mounted Drive path) is used as given;
+    # a relative one is still taken against the project root.
+    def _resolve(override: Path | None, configured: str) -> Path:
+        if override is None:
+            return PROJECT_ROOT / configured
+        return override if override.is_absolute() else PROJECT_ROOT / override
+
+    checkpoints_dir = _resolve(args.checkpoints_dir, out_cfg["checkpoints_dir"])
+    metrics_dir = _resolve(args.metrics_dir, out_cfg["metrics_dir"])
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
     metrics_dir.mkdir(parents=True, exist_ok=True)
     log_path = metrics_dir / f"{run_name}_train_log.csv"
@@ -333,6 +345,7 @@ def main() -> int:
         print("  batching      : RANDOM. BatchNorm statistics will be polluted by "
               "padding; see WidthBucketSampler.")
     print(f"  epochs        : {start_epoch}..{train_cfg['epochs']}")
+    print(f"  checkpoints   : {checkpoints_dir}")
     if overrides:
         print("  overrides     : " + "; ".join(overrides))
     print()
@@ -440,9 +453,7 @@ def main() -> int:
         if is_best:
             torch.save(checkpoint, checkpoints_dir / f"{run_name}_best.pt")
             # Validation predictions from the selected epoch, for error analysis.
-            predictions_path = (
-                PROJECT_ROOT / "outputs" / "predictions" / f"{run_name}_val_best.csv"
-            )
+            predictions_path = metrics_dir.parent / "predictions" / f"{run_name}_val_best.csv"
             predictions_path.parent.mkdir(parents=True, exist_ok=True)
             with predictions_path.open("w", encoding="utf-8", newline="") as handle:
                 writer = csv.writer(handle)
