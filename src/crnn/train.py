@@ -133,6 +133,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--amp", action="store_true", help="mixed precision (GPU only)")
     parser.add_argument("--no-bucket", action="store_true",
                         help="disable width-bucketed batching (not recommended)")
+    flip = parser.add_mutually_exclusive_group()
+    flip.add_argument("--flip", dest="flip", action="store_true", default=None,
+                      help="mirror images left-to-right (see dataset.py)")
+    flip.add_argument("--no-flip", dest="flip", action="store_false",
+                      help="feed images in their original orientation")
     parser.add_argument("--resume", type=Path, default=None, help="checkpoint to continue from")
     return parser
 
@@ -160,6 +165,9 @@ def apply_overrides(config: dict[str, Any], args: argparse.Namespace) -> list[st
     if args.no_bucket:
         applied.append("train.bucket_by_width: True -> False")
         config["train"]["bucket_by_width"] = False
+    if args.flip is not None:
+        applied.append(f"data.flip_horizontal: {config['data']['flip_horizontal']} -> {args.flip}")
+        config["data"]["flip_horizontal"] = args.flip
     if args.run_name:
         applied.append(f"run_name: {config['run_name']} -> {args.run_name}")
         config["run_name"] = args.run_name
@@ -313,6 +321,8 @@ def main() -> int:
     print(f"  train samples : {len(train_set)}")
     print(f"  val samples   : {len(val_set)}  (test split NOT opened)")
     print(f"  vocabulary    : {vocabulary.size} CTC outputs")
+    print(f"  image flip    : {data_cfg.get('flip_horizontal', True)}"
+          f"  (Urdu is right-to-left; see src/crnn/dataset.py)")
     print(f"  parameters    : {model.n_parameters():,}")
     print(f"  batch size    : {train_cfg['batch_size']}, lr {train_cfg['lr']}, "
           f"seed {train_cfg['seed']}")
