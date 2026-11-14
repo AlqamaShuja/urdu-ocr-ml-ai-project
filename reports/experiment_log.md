@@ -635,3 +635,74 @@ written straight to mounted Drive every epoch instead of being copied after
 training, which is what cost an earlier 30-epoch run when the session died.
 
 ---
+
+## 2026-11-14 - CRNN handwritten baseline COMPLETE: test CER 0.1068
+
+**First reportable result of the project.**
+
+Run `crnn_handwritten`, Tesla T4, 30 epochs, batch 16, lr 1e-3, GroupNorm,
+width-bucketed batching, images mirrored left-to-right, greedy CTC decoding with
+no external language model. Checkpoint selected on validation CER.
+
+### Held-out test split, evaluated once
+
+| Metric | Value |
+| --- | --- |
+| Samples | 1,061 (official test split, untouched during training) |
+| **CER** | **0.1068** (raw 0.1068) |
+| **WER** | **0.3829** (raw 0.3829) |
+| Exact line matches | 44 / 1,061 |
+| Character S / D / I | 2,642 / 2,076 / 1,233 over 55,730 reference characters |
+| Word S / D / I | 3,651 / 545 / 473 over 12,195 reference words |
+| Parameters | 8,763,630 |
+| Checkpoint epoch | 30, validation CER 0.1077 |
+
+Normalized and raw scores are identical to four decimal places, so the
+normalization choices are not doing the work - the result stands on either.
+
+Validation CER 0.1077 against test CER 0.1068: the two agree closely, so model
+selection did not overfit the validation split.
+
+**Context.** The dataset's own paper (Zia, Ul-Hasan, Shafait, NCA 2021,
+DOI 10.1007/s00521-021-06498-2) reports 5.28% CER, but with n-gram language
+modelling. This baseline uses greedy decoding and no language model, by design:
+the VLM it will be compared against already contains a language model, and adding
+one to a single side would measure language modelling rather than recognition.
+
+### Caveats to carry into the comparison
+
+1. **Latency was measured on CPU** (371.2 ms/image at batch size 1), because the
+   Colab session had no GPU at evaluation time. CER and WER are unaffected, but
+   the latency figure is **not comparable** with a GPU-measured VLM number and
+   must be re-measured on GPU before the comparison table is written.
+2. **Peak GPU memory for inference was not captured** in this run, for the same
+   reason. Also needs a GPU re-measurement.
+3. **Training stopped at 30 epochs** while validation CER was still improving. The
+   1,000-sample A/B run was still improving at epoch 60, so a longer run would
+   likely do better. Any such run must be selected on validation only, and if test
+   is re-scored afterwards both numbers must be reported.
+
+### Error analysis - a dataset finding, not a model finding
+
+Two of the five worst samples are not model errors:
+
+| Image | Reference | Prediction |
+| --- | --- | --- |
+| 02786.jpg | منصوبہ کی تکمیل کی جانب نہیں بڑھ سکا۔ ایران نے اپنے | اوراب بھی محبت اور دوستی کا پیغام دیا انبوں نے کہا کر ہم |
+| 02792.jpg | کے مطابق پاکستان کا مرکزی بینک سابقہ دور حکومت کے مقابلے میں | شرکت کی جا سکے۔ خیر پورایو رورپورٹ) چونڈ کے قرب تریلر کی |
+
+The predictions are **fluent, coherent Urdu that is completely unrelated to the
+reference**. A CTC model with no language model cannot invent coherent sentences;
+to produce that text it must be reading something. The likely explanation is that
+these two records are **mislabelled** - the image does not match its
+transcription, the same defect already confirmed for `04745.jpg`.
+
+**To do:** open 02786.jpg and 02792.jpg and check. If confirmed, record them in
+the dataset card. Note they are in the **test** split, so they must be reported
+rather than quietly removed - removing samples after seeing the score is not
+allowed.
+
+The other three worst samples are genuine model errors and show the expected
+failure mode: broadly correct shape and word rhythm with character-level mistakes.
+
+---

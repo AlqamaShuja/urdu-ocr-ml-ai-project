@@ -176,7 +176,24 @@ unstandardised input. Discard them, do not evaluate or demo with them.
 **Next diagnostic must be 5 epochs, not 30.** The question is only whether train
 loss goes below 2.8. Do not spend a full run until it does.
 
-## Results so far - NONE are reportable
+## RESULT - handwritten baseline, 2026-11-14
+
+**Test CER 0.1068, WER 0.3829** on the 1,061-line official test split, evaluated
+once. Checkpoint `crnn_handwritten_best.pt`, epoch 30, validation CER 0.1077.
+30 epochs on a T4, batch 16, lr 1e-3, GroupNorm, width-bucketed, images mirrored,
+greedy CTC decoding with no language model. 8,763,630 parameters.
+44 of 1,061 lines matched exactly.
+
+Normalized and raw scores agree to four decimals, so the normalization choices are
+not carrying the result.
+
+Outstanding: latency and peak GPU memory were measured on CPU and must be redone
+on GPU before the CRNN-versus-VLM table is written. Training also stopped while
+validation CER was still improving, so a longer run would likely do better - but
+it must be selected on validation only, and both test numbers reported if test is
+re-scored.
+
+## Diagnostic runs - NONE are reportable
 
 | Run | Setup | Result | Verdict |
 | --- | --- | --- | --- |

@@ -47,7 +47,7 @@ handwritten text under one identical evaluation protocol?
 | --- | --- | --- | --- | --- | --- |
 | 1 | CRNN + CTC | Printed | Synthetic-R-Urdu | word | not started |
 | 2 | VLM | Printed | Synthetic-R-Urdu | word | not started |
-| 3 | CRNN + CTC | Handwritten | NUST-UHWR | line | **code ready, needs GPU run** |
+| 3 | CRNN + CTC | Handwritten | NUST-UHWR | line | **DONE - test CER 0.1068, WER 0.3829** |
 | 4 | VLM | Handwritten | NUST-UHWR | line | not started |
 
 The comparison is made **within** each domain. Printed and handwritten numbers are
@@ -95,31 +95,53 @@ should exist, what to run, what output to expect, and how to troubleshoot.
 | Shared normalization + CER/WER code | **complete**, 67 tests passing |
 | CRNN model, dataset, decode, train, evaluate, demo | **complete** |
 | CRNN tiny overfit test | **PASSED** - CER 0.0000, 8/8 exact |
-| CRNN real training run on GPU | **NOT DONE - this is the next task** |
+| CRNN real training run on GPU | **complete** - test CER 0.1068, WER 0.3829 |
+| CRNN GPU latency / memory re-measurement | **outstanding** - latency was taken on CPU |
 | Printed data (Synthetic-R-Urdu) | not downloaded |
 | VLM - anything at all | **not started**, see docs/VLM.md |
 
-**There is no usable trained model yet.** The checkpoints in `outputs/checkpoints/`
-are `smoke_local_*` (outputs nothing) and `local_demo_*` (CER 0.81, predicts only
-the most common character). **Neither may appear in any results table.**
+**The handwritten CRNN baseline is finished.** Test CER **0.1068**, WER **0.3829**
+on the 1,061-line official test split, from checkpoint
+`crnn_handwritten_best.pt` (epoch 30, validation CER 0.1077). Greedy decoding, no
+language model. Full details in `reports/experiment_log.md` (2026-11-14) and
+`docs/CRNN.md`.
+
+The checkpoint lives on the user's Google Drive at
+`MyDrive/urdu_ocr/outputs/checkpoints/`, not in this repository.
+
+Every other checkpoint in `outputs/checkpoints/` is a diagnostic
+(`smoke_local_*`, `local_demo_*`, `bucket_check_*`, `diag*`) and **must never
+appear in a results table**. Most also predate the image-flip and GroupNorm
+changes and will not load.
+
+**Next: the VLM.** Nothing has been started - see `docs/VLM.md`.
 
 ---
 
 ## Open issues
 
-1. **The Colab notebook's checkpoint claim is wrong.** `notebooks/01_colab_crnn_training.ipynb`
+1. **CRNN latency and peak GPU memory must be re-measured on GPU.** The test run
+   was evaluated on CPU because that session had no GPU. CER and WER are
+   unaffected, but the latency figure (371.2 ms/image, batch 1, CPU) cannot be
+   compared with a GPU-measured VLM number.
+2. **Two test-split records look mislabelled**, `02786.jpg` and `02792.jpg`: the
+   model predicts fluent Urdu unrelated to the reference, which a CTC model with
+   no language model cannot invent. Inspect the images; if confirmed, record them
+   in the dataset card. They are in the **test** split, so they must be reported,
+   never quietly removed after the score is known.
+3. **The Colab notebook's checkpoint claim is wrong.** `notebooks/01_colab_crnn_training.ipynb`
    says in markdown that checkpoints are written to Drive every epoch. They are
    not: `train.py` writes to `outputs/` inside the session, and a separate cell
    copies to Drive *after* training. A session that dies mid-training loses
    everything. **Fix:** point `output.checkpoints_dir` at the mounted Drive path,
    or add a per-epoch copy. The user already lost a run to this.
-2. **Printed-domain licence.** Synthetic-R-Urdu states no licence anywhere. The
+4. **Printed-domain licence.** Synthetic-R-Urdu states no licence anywhere. The
    user's decision: not a blocker for local work and a local demo. A ready-to-send
    enquiry is at `reports/licence_enquiry_iiit.md`, to be sent if the thesis is
    submitted, published, or pushed publicly with the data or trained weights.
    **Note: the GitHub repo is now public**, so revisit this before the printed data
    or models trained on it are committed.
-3. **Full-page images are out of scope.** The CRNN reads one text line. Page
+5. **Full-page images are out of scope.** The CRNN reads one text line. Page
    support needs line segmentation, which is a separate stage and deliberately not
    part of the comparison. `scripts/predict_image.py` warns on page-like input.
 
