@@ -432,3 +432,50 @@ only on explicit instruction. Planned order when that comes:
    586,980 training word images far exceed what this project's compute budget needs,
    so a documented random subsample with a fixed seed will be drawn from the
    official training split, leaving the official validation and test splits intact.
+
+## Mislabelled records confirmed by inspection
+
+Beyond `04745.jpg` (found during the 2026-11-02 audit), two **test-split** records
+were found on 2026-11-14 while reading the CRNN's worst predictions. In both the
+model's output is fluent Urdu that matches the image, and the shipped
+transcription describes something else entirely. A CTC model with no language
+model cannot invent coherent sentences, so a fluent prediction unrelated to the
+reference is a signal that the reference is wrong.
+
+Both images were opened and read to confirm.
+
+| Image | Split | Shipped transcription | What the image actually shows (= what the model read) |
+| --- | --- | --- | --- |
+| `02786.jpg` | test | منصوبہ کی تکمیل کی جانب نہیں بڑھ سکا۔ ایران نے اپنے | اور اب بھی محبت اور دوستی کا پیغام دیا انہوں نے کہا کہ ہم |
+| `02792.jpg` | test | کے مطابق پاکستان کا مرکزی بینک سابقہ دور حکومت کے مقابلے میں | شرکت کی جا سکے۔ خیرپور (یو رپورٹ) چونڈ کے قریب ٹریلر کی |
+
+**Not a systematic offset.** The true texts do not appear as the label of any
+other image in any split, and the labels of neighbouring image ids are unrelated.
+These are isolated errors, consistent with the label noise the Zenodo record
+itself warns about, not a shifted or swapped block.
+
+### These records are NOT removed
+
+They sit in the **test** split, and the score has already been seen. Dropping
+samples after seeing the score is not permissible, so they stay in, and the effect
+is reported instead:
+
+| | CER |
+| --- | --- |
+| Reported (all 1,061 test lines) | **0.1068** |
+| Excluding these two records | 0.1054 |
+| Difference | 0.0014 |
+
+About 89 of the 5,952 counted character errors come from these two records. The
+reported figure stands; the true error rate is marginally better than it states.
+
+### Implication for the comparison
+
+Whatever this noise costs, it costs **both** models equally, since both are scored
+on the same records with the same code. It does not bias CRNN against VLM. What it
+does mean is that **CER on this dataset has a non-zero floor**, and a gap of a few
+tenths of a percent between the two systems is not meaningful. This belongs in
+threats to validity.
+
+No systematic sweep for further mislabelled records has been run. Two were found
+by reading five worst-case predictions, so more probably exist.
